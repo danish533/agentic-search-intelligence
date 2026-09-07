@@ -35,7 +35,9 @@ services:
       - path: .env
         required: false
     ports:
-      - "8000:8000"
+      # Configurable for the same reason the database port is: 8000 is a common collision.
+      # The container port never changes, so nothing else needs adjusting.
+      - "${API_HOST_PORT:-8000}:8000"
     # Migrations run before the server accepts traffic, in the same container that will serve
     # it - so the schema can never be one deploy behind the code that queries it.
     command: >
