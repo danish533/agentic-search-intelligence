@@ -12,7 +12,9 @@ answer instead of returning nothing.
 
 from __future__ import annotations
 
-from sightline.agents.contracts.plan import PlannedRetrieval, RetrievalPlan
+from pydantic import ValidationError
+
+from sightline.agents.contracts.plan import MIN_QUERY_LENGTH, PlannedRetrieval, RetrievalPlan
 from sightline.agents.dependencies import NodeDependencies
 from sightline.agents.graph.names import NodeName
 from sightline.agents.graph.state import PipelineState
@@ -38,6 +40,17 @@ _FULL_COVERAGE = [
 FALLBACK_REASON = "Generated without an LLM because the Query Planner was unavailable."
 
 
+def _brand_query(brand: str, category: str) -> str:
+    """A brand-defence query that is a usable search on its own.
+
+    A bare two-character brand - HP, BP, GE, LG, 3M - is both too short for the contract and a
+    poor query in its own right, since it matches almost anything. Qualifying it with the
+    category disambiguates it and makes it valid. These are not contrived names; they are among
+    the largest advertisers there are.
+    """
+    return brand if len(brand) >= MIN_QUERY_LENGTH else f"{brand} {category}"
+
+
 def build_fallback_plan(
     profile: Profile, *, limit: int, reason: str = FALLBACK_REASON
 ) -> RetrievalPlan:
@@ -50,53 +63,75 @@ def build_fallback_plan(
     category = profile.industry.strip() or "software"
     brand = profile.name
 
-    candidates: list[PlannedRetrieval] = [
-        PlannedRetrieval(
-            query_text=f"best {category}",
-            intent=QueryIntent.COMMERCIAL,
-            rationale="Category demand: the query most likely to decide a purchase.",
-            retrieval_kinds=_FULL_COVERAGE,
+    # Each template is built independently so one bad template degrades the plan rather than
+    # destroying it. This node is the fallback path - the thing that runs when the LLM planner
+    # has already failed - so it must never raise (CLAUDE.md A8, R5). The first template is
+    # derived from the category alone and is always valid, which guarantees a usable plan.
+    specifications: list[tuple[str, QueryIntent, str, list[RetrievalKind]]] = [
+        (
+            f"best {category}",
+            QueryIntent.COMMERCIAL,
+            "Category demand: the query most likely to decide a purchase.",
+            _FULL_COVERAGE,
         ),
-        PlannedRetrieval(
-            query_text=f"{brand} alternatives",
-            intent=QueryIntent.COMPARISON,
-            rationale="Comparison intent: where competitors capture existing brand demand.",
-            retrieval_kinds=_FULL_COVERAGE,
+        (
+            f"{brand} alternatives",
+            QueryIntent.COMPARISON,
+            "Comparison intent: where competitors capture existing brand demand.",
+            _FULL_COVERAGE,
         ),
-        PlannedRetrieval(
-            query_text=f"{brand} review",
-            intent=QueryIntent.COMMERCIAL,
-            rationale="Brand evaluation: what buyers find when researching the brand itself.",
-            retrieval_kinds=_FULL_COVERAGE,
+        (
+            f"{brand} review",
+            QueryIntent.COMMERCIAL,
+            "Brand evaluation: what buyers find when researching the brand itself.",
+            _FULL_COVERAGE,
         ),
-        PlannedRetrieval(
-            query_text=f"{category} for small business",
-            intent=QueryIntent.COMMERCIAL,
-            rationale="Segment demand: a common qualifier on category searches.",
-            retrieval_kinds=[
+        (
+            f"{category} for small business",
+            QueryIntent.COMMERCIAL,
+            "Segment demand: a common qualifier on category searches.",
+            [
                 RetrievalKind.ORGANIC_SERP,
                 RetrievalKind.AI_OVERVIEW,
                 RetrievalKind.KEYWORD_METRICS,
             ],
         ),
-        PlannedRetrieval(
-            query_text=brand,
-            intent=QueryIntent.NAVIGATIONAL,
-            rationale="Brand defence: confirms the brand owns its own name.",
-            retrieval_kinds=[RetrievalKind.ORGANIC_SERP, RetrievalKind.KEYWORD_METRICS],
+        (
+            _brand_query(brand, category),
+            QueryIntent.NAVIGATIONAL,
+            "Brand defence: confirms the brand owns its own name.",
+            [RetrievalKind.ORGANIC_SERP, RetrievalKind.KEYWORD_METRICS],
         ),
     ]
 
     for competitor in profile.competitors[:2]:
         competitor_name = competitor.split(".")[0]
-        candidates.append(
-            PlannedRetrieval(
-                query_text=f"{brand} vs {competitor_name}",
-                intent=QueryIntent.COMPARISON,
-                rationale=f"Head-to-head comparison against declared competitor {competitor}.",
-                retrieval_kinds=_FULL_COVERAGE,
+        specifications.append(
+            (
+                f"{brand} vs {competitor_name}",
+                QueryIntent.COMPARISON,
+                f"Head-to-head comparison against declared competitor {competitor}.",
+                _FULL_COVERAGE,
             )
         )
+
+    candidates: list[PlannedRetrieval] = []
+    for query_text, intent, rationale, kinds in specifications:
+        try:
+            candidates.append(
+                PlannedRetrieval(
+                    query_text=query_text,
+                    intent=intent,
+                    rationale=rationale,
+                    retrieval_kinds=kinds,
+                )
+            )
+        except ValidationError:
+            _logger.warning(
+                "planner.fallback_template_skipped",
+                query_text=query_text,
+                reason="template produced an invalid sub-query for this profile",
+            )
 
     return RetrievalPlan(
         interpretation=(

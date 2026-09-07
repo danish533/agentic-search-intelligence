@@ -19,6 +19,9 @@ from sightline.domain.value_objects.enums import QueryIntent, RetrievalKind
 
 MAX_SUB_QUERIES = 12
 
+#: Shortest usable search query. Shared so the fallback templates honour the same bound.
+MIN_QUERY_LENGTH = 3
+
 
 class PlannedRetrieval(BaseModel):
     """One sub-query the planner wants measured."""
@@ -26,7 +29,7 @@ class PlannedRetrieval(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True)
 
     query_text: str = Field(
-        min_length=3,
+        min_length=MIN_QUERY_LENGTH,
         max_length=200,
         description="The search query to measure, phrased exactly as a real user would type "
         "or ask it. Lower-case, no quotes, no operators.",
