@@ -26,11 +26,13 @@ You need Docker. Nothing else.
 
 ```bash
 cp .env.example .env
-make run
+docker compose up --build
 ```
 
 That starts PostgreSQL and the API together on <http://localhost:8000>.
-API docs are at <http://localhost:8000/docs>.
+API docs are at <http://localhost:8000/docs>. Stop it with Ctrl+C.
+
+If you have `make`, `make run` is the same thing.
 
 It works straight away with no API keys. Out of the box it uses mocked DataForSEO responses
 and a deterministic stub in place of a real LLM, so you get a complete, working run for free.
@@ -48,19 +50,49 @@ DATAFORSEO_PASSWORD=your-api-password
 
 ### Running it locally instead of in Docker
 
+Needs [uv](https://docs.astral.sh/uv/) and Python 3.12.
+
 ```bash
-make install    # install dependencies with uv
-make db         # start just PostgreSQL
-make migrate    # create the tables
-make dev        # run the API with reload
+uv sync --extra dev                        # make install
+docker compose up -d db                    # make db
+uv run alembic upgrade head                # make migrate
+uv run uvicorn sightline.composition.bootstrap:create_application --factory --reload
 ```
 
 ### Other commands
 
 ```bash
-make test       # run the tests
-make check      # lint, type check and test
-make help       # list everything
+uv run pytest                              # make test
+uv run ruff check src tests                # part of make check
+uv run mypy                                # part of make check
+uv run lint-imports                        # verify the layer boundaries
+```
+
+### On Windows
+
+Everything works, but `make` is not available by default and the Makefile needs a Unix
+shell. Use the direct commands above, or install `make` through WSL2 or Git Bash and the
+shortcuts work as written.
+
+Docker itself behaves identically on Windows, macOS and Linux, because the container is
+Linux either way. In Command Prompt use `copy .env.example .env` instead of `cp`.
+
+| Shortcut | Direct command |
+|---|---|
+| `make run` | `docker compose up --build` |
+| `make stop` | `docker compose down --volumes` |
+| `make db` | `docker compose up -d db` |
+| `make migrate` | `uv run alembic upgrade head` |
+| `make test` | `uv run pytest` |
+
+### If a port is already in use
+
+The API uses 8000 and PostgreSQL 5432. Both are common, so both are configurable. Set them
+in `.env` before starting:
+
+```bash
+API_HOST_PORT=8188
+POSTGRES_HOST_PORT=5433
 ```
 
 ---
