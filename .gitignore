@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.import_linter_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Internal working documents — process notes, not deliverables.
+# Excluded from the repository so they are never pushed.
+CLAUDE.md
+PROGRESS.md

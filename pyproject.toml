@@ -1,0 +1,198 @@
+[project]
+name = "agentic-search-intelligence"
+version = "0.1.0"
+description = "Agentic search-intelligence system: a LangGraph DAG of single-responsibility agents that answers AI-visibility questions end to end."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+    # --- API layer -------------------------------------------------------
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # --- Persistence -----------------------------------------------------
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    # --- Agent orchestration ---------------------------------------------
+    "langgraph>=1.0,<2.0",
+    "langchain-core>=0.3.20",
+    # --- LLM providers (selected at runtime by LLM_PROVIDER) -------------
+    "langchain-openai>=0.2.10",
+    "langchain-anthropic>=0.3.0",
+    "langchain-google-genai>=2.0.5",
+    # --- External I/O + observability ------------------------------------
+    "httpx>=0.27",
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "respx>=0.21",
+    "freezegun>=1.5",
+    "mypy>=1.13",
+    "ruff>=0.8",
+    "import-linter>=2.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sightline"]
+
+
+# ============================================================================
+# Architecture enforcement (CLAUDE.md rule A4)
+# The Clean Architecture dependency rule is executable, not aspirational:
+# a layer violation fails `make lint`, it does not become a review comment.
+# ============================================================================
+[tool.importlinter]
+root_package = "sightline"
+# Required so the "domain is pure" contract can name third-party packages.
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "A1: Clean Architecture layers (dependencies point inward only)"
+type = "layers"
+layers = [
+    "sightline.composition",
+    "sightline.api",
+    "sightline.agents",
+    "sightline.tools",
+    "sightline.application",
+    "sightline.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "A3: infrastructure adapters are reachable only from the composition root"
+type = "forbidden"
+source_modules = [
+    "sightline.api",
+    "sightline.agents",
+    "sightline.tools",
+    "sightline.application",
+    "sightline.domain",
+]
+forbidden_modules = ["sightline.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "A1: the domain ring is pure (no framework, no outward import)"
+type = "forbidden"
+source_modules = ["sightline.domain"]
+forbidden_modules = [
+    "sightline.application",
+    "sightline.agents",
+    "sightline.tools",
+    "sightline.infrastructure",
+    "sightline.api",
+    "sightline.composition",
+    "sightline.config",
+    "sightline.observability",
+    "fastapi",
+    "sqlalchemy",
+    "pydantic",
+    "langchain_core",
+    "langgraph",
+    "httpx",
+    "structlog",
+]
+
+[[tool.importlinter.contracts]]
+name = "A2: the application ring depends on ports, never on frameworks"
+type = "forbidden"
+source_modules = ["sightline.application"]
+forbidden_modules = [
+    "fastapi",
+    "sqlalchemy",
+    "langchain_core",
+    "langgraph",
+    "httpx",
+]
+
+
+# ============================================================================
+# Lint + format
+# ============================================================================
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "ANN",       # flake8-annotations   -> CLAUDE.md R7 (full typing at boundaries)
+    "ASYNC",     # flake8-async         -> CLAUDE.md A6 (no blocking I/O in coroutines)
+    "S",         # bandit               -> no hardcoded secrets
+    "B",         # flake8-bugbear
+    "A",         # flake8-builtins
+    "C4",        # comprehensions
+    "DTZ",       # flake8-datetimez     -> timezone-aware datetimes only
+    "T20",       # flake8-print         -> CLAUDE.md R6 (no print())
+    "SIM",       # flake8-simplify
+    "PTH",       # pathlib over os.path
+    "TRY",       # tryceratops          -> CLAUDE.md R5 (no swallowed exceptions)
+    "RUF",
+]
+ignore = [
+    "ANN401",  # `Any` is permitted where a rule-justified comment accompanies it
+    "TRY003",  # domain errors carry descriptive messages by design
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Asserts are the point of a test; seeded RNGs are how a test stays deterministic;
+# terse fixture signatures are idiomatic pytest.
+"tests/*" = ["S101", "S311", "ANN201", "ANN001", "ANN202", "SLF001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sightline"]
+
+
+# ============================================================================
+# Static typing
+# ============================================================================
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_no_return = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["sightline"]
+
+[[tool.mypy.overrides]]
+module = ["langgraph.*", "langchain_google_genai.*"]
+ignore_missing_imports = true
+
+
+# ============================================================================
+# Tests
+# ============================================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "integration: exercises a real Postgres instance (requires docker compose up db)",
+]
+
+[tool.coverage.run]
+source = ["src/sightline"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]

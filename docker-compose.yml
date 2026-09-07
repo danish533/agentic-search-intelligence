@@ -1,0 +1,46 @@
+name: agentic-search-intelligence
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sightline
+      POSTGRES_PASSWORD: sightline
+      POSTGRES_DB: sightline
+    ports:
+      # Host port is configurable: many developer machines already run PostgreSQL on 5432.
+      # Override with POSTGRES_HOST_PORT in .env; the container port never changes, so the
+      # api service's DATABASE_URL is unaffected.
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # The API waits on this rather than sleeping: no race on a cold start.
+      test: ["CMD-SHELL", "pg_isready -U sightline -d sightline"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://sightline:sightline@db:5432/sightline
+    env_file:
+      # Optional: absent by default, so the stack runs offline out of the box.
+      - path: .env
+        required: false
+    ports:
+      - "8000:8000"
+    # Migrations run before the server accepts traffic, in the same container that will serve
+    # it - so the schema can never be one deploy behind the code that queries it.
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn sightline.composition.bootstrap:create_application --factory --host 0.0.0.0 --port 8000"
+
+volumes:
+  postgres_data:
