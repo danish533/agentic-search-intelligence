@@ -15,7 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from sightline.agents.dependencies import NodeDependencies
@@ -97,8 +96,17 @@ class Container:
         try:
             async with self._database.connect() as connection:
                 await connection.execute(text("SELECT 1"))
-        except SQLAlchemyError as exc:
-            _logger.warning("health.database_unreachable", error=str(exc))
+        except Exception as exc:
+            # Deliberately broad. A refused connection raises ConnectionRefusedError, which is
+            # an OSError and not a SQLAlchemyError - so catching the driver's exception family
+            # alone let the real failure escape and turned /health into a 500, hiding the
+            # "degraded" state the endpoint exists to report. A readiness probe answers up or
+            # down; any failure is "down", and it must never raise.
+            _logger.warning(
+                "health.database_unreachable",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             return False
         return True
 
