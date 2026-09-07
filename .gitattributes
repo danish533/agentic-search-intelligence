@@ -1,0 +1,17 @@
+# Normalise line endings so a Windows clone receives LF, not CRLF.
+#
+# Git for Windows defaults to core.autocrlf=true, which rewrites text files on
+# checkout. Most of this tree tolerates CRLF - Python, YAML, the Dockerfile and
+# .env all parse either way - but GNU Make 3.81, still bundled with some Windows
+# toolchains, fails on a CRLF Makefile with "missing separator". Make 4.3 and
+# later handle it, so this only bites a subset of Windows setups.
+#
+# Forcing LF removes the class of problem rather than that one instance, and
+# costs nothing: the repository is already LF throughout.
+* text=auto eol=lf
+
+# Never normalise these, whatever the detection heuristic decides.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.zip  binary

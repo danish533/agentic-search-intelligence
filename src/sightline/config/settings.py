@@ -94,8 +94,11 @@ class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(**_ENV_FILE_CONFIG, env_prefix="DATABASE_")
 
     url: PostgresDsn = Field(
-        default=PostgresDsn("postgresql+asyncpg://sightline:sightline@localhost:5432/sightline"),
-        description="Async SQLAlchemy DSN. Must use the asyncpg driver.",
+        default=PostgresDsn("postgresql+asyncpg://sightline:sightline@127.0.0.1:5432/sightline"),
+        description="Async SQLAlchemy DSN. Must use the asyncpg driver. Uses 127.0.0.1 "
+        "rather than localhost: on Windows the latter can resolve to ::1 first while "
+        "Docker publishes on IPv4, which surfaces as a connection refused with everything "
+        "apparently running.",
     )
     pool_size: int = Field(default=10, ge=1)
     max_overflow: int = Field(default=5, ge=0)
